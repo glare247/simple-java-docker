@@ -1,0 +1,145 @@
+---
+- name: Install and Configure Apache Tomcat
+  hosts: tomcat
+  become: yes
+  vars:
+    tomcat_version: "9.0.82"
+    java_version: "17"
+    tomcat_user: "tomcat"
+    tomcat_group: "tomcat"
+    tomcat_home: "/opt/tomcat"
+    
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install Java 17
+      apt:
+        name: openjdk-17-jdk
+        state: present
+
+    - name: Create tomcat group
+      group:
+        name: "{{ tomcat_group }}"
+        state: present
+
+    - name: Create tomcat user
+      user:
+        name: "{{ tomcat_user }}"
+        group: "{{ tomcat_group }}"
+        home: "{{ tomcat_home }}"
+        createhome: no
+        shell: /bin/false
+
+    - name: Download Tomcat
+      get_url:
+        url: "https://archive.apache.org/dist/tomcat/tomcat-9/v{{ tomcat_version }}/bin/apache-tomcat-{{ tomcat_version }}.tar.gz"
+        dest: "/tmp/apache-tomcat-{{ tomcat_version }}.tar.gz"
+
+    - name: Create Tomcat directory
+      file:
+        path: "{{ tomcat_home }}"
+        state: directory
+        owner: "{{ tomcat_user }}"
+        group: "{{ tomcat_group }}"
+
+    - name: Extract Tomcat
+      unarchive:
+        src: "/tmp/apache-tomcat-{{ tomcat_version }}.tar.gz"
+        dest: "{{ tomcat_home }}"
+        remote_src: yes
+        extra_opts: [--strip-components=1]
+        owner: "{{ tomcat_user }}"
+        group: "{{ tomcat_group }}"
+
+    - name: Set permissions on Tomcat directories
+      file:
+        path: "{{ tomcat_home }}/{{ item }}"
+        owner: "{{ tomcat_user }}"
+        group: "{{ tomcat_group }}"
+        mode: '0755'
+        recurse: yes
+      loop:
+        - bin
+        - conf
+        - lib
+        - logs
+        - temp
+        - webapps
+        - work
+
+    - name: Create Tomcat systemd service
+      copy:
+        dest: /etc/systemd/system/tomcat.service
+        content: |
+          [Unit]
+          Description=Apache Tomcat Web Application Container
+          After=network.target
+
+          [Service]
+          Type=forking
+
+          Environment=JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+          Environment=CATALINA_PID={{ tomcat_home }}/temp/tomcat.pid
+          Environment=CATALINA_HOME={{ tomcat_home }}
+          Environment=CATALINA_BASE={{ tomcat_home }}
+
+          ExecStart={{ tomcat_home }}/bin/startup.sh
+          ExecStop={{ tomcat_home }}/bin/shutdown.sh
+
+          User={{ tomcat_user }}
+          Group={{ tomcat_group }}
+          RestartSec=10
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Configure Tomcat users
+      copy:
+        dest: "{{ tomcat_home }}/conf/tomcat-users.xml"
+        content: |
+          <?xml version="1.0" encoding="UTF-8"?>
+          <tomcat-users xmlns="http://tomcat.apache.org/xml"
+                        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                        xsi:schemaLocation="http://tomcat.apache.org/xml tomcat-users.xsd"
+                        version="1.0">
+            <role rolename="manager-gui"/>
+            <role rolename="manager-script"/>
+            <role rolename="manager-jmx"/>
+            <role rolename="manager-status"/>
+            <user username="admin" password="admin123" roles="manager-gui,manager-script,manager-jmx,manager-status"/>
+            <user username="deployer" password="deployer123" roles="manager-script"/>
+          </tomcat-users>
+        owner: "{{ tomcat_user }}"
+        group: "{{ tomcat_group }}"
+
+    - name: Allow manager access from anywhere
+      copy:
+        dest: "{{ tomcat_home }}/webapps/manager/META-INF/context.xml"
+        content: |
+          <?xml version="1.0" encoding="UTF-8"?>
+          <Context antiResourceLocking="false" privileged="true" >
+            <CookieProcessor className="org.apache.tomcat.util.http.Rfc6265CookieProcessor"
+                             sameSiteCookies="strict" />
+          </Context>
+        owner: "{{ tomcat_user }}"
+        group: "{{ tomcat_group }}"
+
+    - name: Reload systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: Start and enable Tomcat
+      systemd:
+        name: tomcat
+        state: started
+        enabled: yes
+
+    - name: Open port 8080 in UFW (if enabled)
+      ufw:
+        rule: allow
+        port: '8080'
+        proto: tcp
+      ignore_errors: yes
