@@ -1,0 +1,17 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.crash.log
+terraform.tfvars
+
+# OS / Editor
+.DS_Store
+.vscode/
+.idea/
+
+# Maven
+target/
+
+# Logs
+*.log
