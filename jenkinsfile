@@ -1,118 +1,85 @@
 pipeline {
     agent any
-
+    
     tools {
-        maven 'Maven-3.9'
+        maven 'Maven'
     }
-
+    
     environment {
-        TOMCAT_URL   = 'http://44.192.97.178:8080'
-        TOMCAT_CREDS = 'TOMCAT_ID'
-
-        // IMPORTANT: must match the WAR name produced by Maven
-        APP_NAME = 'simple-java-app'
+        TOMCAT_URL = 'http://44.200.37.68:8080'
+        TOMCAT_CREDS = 'tomcat-credentials'  
     }
-
+    
     stages {
-
         stage('Checkout') {
             steps {
-                echo '========== Checking out source code =========='
-                checkout scm
-                echo 'Source code checked out successfully'
+                echo '========== Checking out Code =========='
+                git branch: 'main',
+                    url: 'https://github.com/glare247/simple-java-docker.git'
             }
         }
-
+        
         stage('Build') {
             steps {
                 echo '========== Building WAR file =========='
-                sh 'mvn clean package -DskipTests'
-                echo 'WAR file built successfully'
-            }
-            post {
-                success {
-                    archiveArtifacts artifacts: 'target/*.war', fingerprint: true
-                    echo "Build artifact archived"
-                }
+                sh 'mvn clean package'
             }
         }
-
+        
         stage('Test') {
             steps {
-                echo '========== Running Unit Tests =========='
+                echo '========== Running Tests =========='
                 sh 'mvn test'
             }
-            post {
-                always {
-                    junit allowEmptyResults: true, testResults: 'target/surefire-reports/*.xml'
-                }
-            }
         }
-
-        stage('Code Quality Analysis') {
-            steps {
-                echo '========== Analyzing Code Quality =========='
-                sh 'mvn verify'
-            }
-        }
-
         
         stage('Deploy to Tomcat') {
             steps {
                 echo '========== Deploying to Tomcat Server =========='
-
                 deploy adapters: [
                     tomcat9(
-                        credentialsId: env.TOMCAT_CREDS,
-                        url: env.TOMCAT_URL
+                        credentialsId: "${TOMCAT_CREDS}",
+                        url: "${TOMCAT_URL}",
+                        path: ''
                     )
                 ],
-                contextPath: "/${APP_NAME}",
-                war: "target/${APP_NAME}.war"
-
-                echo "Application deployed successfully!"
-            }
-            post {
-                success {
-                    echo "✅ Deployment successful!"
-                    echo "Application URL: ${TOMCAT_URL}/${APP_NAME}"
-                }
-                failure {
-                    echo "❌ Deployment failed! Check Tomcat credentials and connectivity."
-                }
+                war: 'target/*.war',
+                contextPath: '/simple-java-app'
             }
         }
-        /* ================================================================== */
-
+        
         stage('Health Check') {
             steps {
-                echo '========== Performing Health Check =========='
-                sleep(time: 10, unit: 'SECONDS')
-                echo "Verify application at: ${TOMCAT_URL}/${APP_NAME}"
+                echo '========== Checking Application Health =========='
+                script {
+                    def response = sh(
+                        script: "curl -s -o /dev/null -w '%{http_code}' ${TOMCAT_URL}/simple-java-app",
+                        returnStdout: true
+                    ).trim()
+                    
+                    if (response == '200') {
+                        echo "✅ Application is running successfully!"
+                    } else {
+                        error "❌ Application health check failed. HTTP Status: ${response}"
+                    }
+                }
             }
         }
     }
-
+    
     post {
         success {
             echo '========================================='
             echo '✅ PIPELINE COMPLETED SUCCESSFULLY!'
-            echo "Application URL: ${TOMCAT_URL}/${APP_NAME}"
             echo '========================================='
         }
-
         failure {
             echo '========================================='
             echo '❌ PIPELINE FAILED!'
             echo '========================================='
         }
-
         always {
-            cleanWs(
-                deleteDirs: true,
-                disableDeferredWipeout: true,
-                notFailBuild: true
-            )
+            cleanWs()
         }
     }
 }
