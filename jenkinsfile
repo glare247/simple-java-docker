@@ -25,13 +25,17 @@ pipeline {
             steps {
                 echo '========== Building WAR file =========='
                 sh 'mvn clean package -DskipTests'
+                archiveArtifacts artifacts: "target/${APP_NAME}.war", fingerprint: true
             }
         }
 
         stage('Test') {
             steps {
                 echo '========== Running Tests =========='
-                sh 'mvn test || true'
+                sh '''
+                mvn test || echo "⚠️ Some tests failed (pipeline will continue)"
+                '''
+                junit allowEmptyResults: true, testResults: 'target/surefire-reports/*.xml'
             }
         }
 
@@ -39,6 +43,9 @@ pipeline {
             steps {
                 echo '========== Deploying to Tomcat Server =========='
                 script {
+                    // Remove existing exploded folder to avoid conflicts
+                    sh "rm -rf /opt/tomcat/webapps/${APP_NAME}"
+
                     deploy adapters: [
                         tomcat9(
                             credentialsId: env.TOMCAT_CREDS,
@@ -57,12 +64,12 @@ pipeline {
                 echo '========== Checking Application Health =========='
                 script {
                     sh '''
-                    STATUS=$(curl -s -L -o /dev/null -w "%{http_code}" http://44.192.97.178:8080/simple-java-app)
-
+                    # Follow redirects and get final HTTP status
+                    STATUS=$(curl -s -L -o /dev/null -w "%{http_code}" ${TOMCAT_URL}/${APP_NAME}/)
 
                     echo "HTTP status: $STATUS"
 
-                    if [ "$STATUS" = "200" ] || [ "$STATUS" = "302" ]; then
+                    if [ "$STATUS" = "200" ]; then
                       echo "✅ Application is running"
                     else
                       echo "❌ Application health check failed"
@@ -79,7 +86,7 @@ pipeline {
             echo '========================================='
             echo '✅ PIPELINE COMPLETED SUCCESSFULLY!'
             echo '========================================='
-            echo "Application URL: ${TOMCAT_URL}/${APP_NAME}"
+            echo "Application URL: ${TOMCAT_URL}/${APP_NAME}/"
         }
         failure {
             echo '========================================='
