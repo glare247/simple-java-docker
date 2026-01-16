@@ -57,8 +57,8 @@ pipeline {
                 echo '========== Checking Application Health =========='
                 script {
                     sh '''
-                    STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-                    http://44.192.97.178:8080/simple-java-app)
+                    STATUS=$(curl -s -L -o /dev/null -w "%{http_code}" http://44.192.97.178:8080/simple-java-app)
+
 
                     echo "HTTP status: $STATUS"
 
