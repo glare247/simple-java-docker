@@ -6,8 +6,8 @@ pipeline {
     }
     
     environment {
-        TOMCAT_URL = 'http://44.200.37.68:8080'
-        TOMCAT_CREDS = 'tomcat-credentials'  
+        TOMCAT_URL = 'http://44.192.97.178:8080'
+        TOMCAT_CREDS = 'JENKINS_ID'  
     }
     
     stages {
@@ -44,7 +44,7 @@ pipeline {
                     )
                 ],
                 war: 'target/*.war',
-                contextPath: '/simple-java-app'
+                contextPath: '/simple-java-docker'
             }
         }
         
