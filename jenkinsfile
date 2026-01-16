@@ -1,0 +1,159 @@
+pipeline {
+    agent any
+    
+    tools {
+        // Reference the Maven installation configured in Jenkins
+        maven 'Maven-3.9'
+    }
+    
+    environment {
+        
+        TOMCAT_URL = 'http://44.192.97.178:8080'
+        
+        // Credentials ID for Tomcat deployment user
+        TOMCAT_CREDS = 'tomcat-deployer'
+        
+        // Application name
+        APP_NAME = 'simple-java-docker'
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                echo '========== Checking out source code =========='
+                // Jenkins automatically checks out code from SCM
+                checkout scm
+                echo 'Source code checked out successfully'
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                echo '========== Building WAR file =========='
+                // Clean previous builds and package the application
+                sh 'mvn clean package -DskipTests'
+                echo 'WAR file built successfully'
+            }
+            post {
+                success {
+                    echo 'Archiving artifacts...'
+                    // Archive the WAR file for later reference
+                    archiveArtifacts artifacts: 'target/*.war', fingerprint: true
+                    echo "Build artifact: target/${APP_NAME}.war"
+                }
+                failure {
+                    echo 'Build failed! Check Maven configuration and pom.xml'
+                }
+            }
+        }
+        
+        stage('Test') {
+            steps {
+                echo '========== Running Unit Tests =========='
+                sh 'mvn test'
+            }
+            post {
+                always {
+                    // Publish test results even if tests fail
+                    junit allowEmptyResults: true, testResults: 'target/surefire-reports/*.xml'
+                }
+                success {
+                    echo 'All tests passed!'
+                }
+                failure {
+                    echo 'Some tests failed. Check test reports.'
+                }
+            }
+        }
+        
+        stage('Code Quality Analysis') {
+            steps {
+                echo '========== Analyzing Code Quality =========='
+                // Optional: Add SonarQube or other code quality tools here
+                sh 'mvn verify'
+            }
+        }
+        
+        stage('Deploy to Tomcat') {
+            steps {
+                echo '========== Deploying to Tomcat Server =========='
+                script {
+                    // Deploy WAR file to Tomcat using the deploy plugin
+                    deploy adapters: [
+                        tomcat9(
+                            credentialsId: "${TOMCAT_CREDS}",
+                            path: '',
+                            url: "${TOMCAT_URL}"
+                        )
+                    ],
+                    contextPath: "/${APP_NAME}",
+                    war: "target/${APP_NAME}.war"
+                }
+                echo "Application deployed successfully!"
+            }
+            post {
+                success {
+                    echo "✅ Deployment successful!"
+                    echo "Application URL: ${TOMCAT_URL}/${APP_NAME}"
+                }
+                failure {
+                    echo "❌ Deployment failed! Check Tomcat credentials and connectivity."
+                }
+            }
+        }
+        
+        stage('Health Check') {
+            steps {
+                echo '========== Performing Health Check =========='
+                script {
+                    // Wait for application to start
+                    sleep(time: 10, unit: 'SECONDS')
+                    
+                    // Optional: Add health check endpoint verification
+                    echo "Verify application at: ${TOMCAT_URL}/${APP_NAME}"
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo '========================================='
+            echo '✅ PIPELINE COMPLETED SUCCESSFULLY!'
+            echo '========================================='
+            echo "Application URL: ${TOMCAT_URL}/${APP_NAME}"
+            echo 'All stages executed successfully.'
+        }
+        
+        failure {
+            echo '========================================='
+            echo '❌ PIPELINE FAILED!'
+            echo '========================================='
+            echo 'Check the console output above for errors.'
+            echo 'Common issues:'
+            echo '  - Maven build errors'
+            echo '  - Test failures'
+            echo '  - Tomcat connection issues'
+            echo '  - Incorrect credentials'
+        }
+        
+        unstable {
+            echo '⚠️ Pipeline completed but is unstable (tests may have failed)'
+        }
+        
+        always {
+            echo '========================================='
+            echo 'Pipeline execution completed'
+            echo "Build: ${BUILD_NUMBER}"
+            echo "Duration: ${currentBuild.durationString}"
+            echo '========================================='
+            
+            // Clean up workspace to save disk space
+            cleanWs(
+                deleteDirs: true,
+                disableDeferredWipeout: true,
+                notFailBuild: true
+            )
+        }
+    }
+}
