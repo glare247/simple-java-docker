@@ -11,7 +11,7 @@ pipeline {
         TOMCAT_URL = 'http://44.192.97.178:8080'
         
         // Credentials ID for Tomcat deployment user
-        TOMCAT_CREDS = 'tomcat-deployer'
+        TOMCAT_CREDS = 'TOMCAT_ID'
         
         // Application name
         APP_NAME = 'simple-java-docker'
