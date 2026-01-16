@@ -44,7 +44,7 @@ pipeline {
                     )
                 ],
                 war: 'target/*.war',
-                contextPath: '/simple-java-docker'
+                contextPath: '/simple-java-app'
             }
         }
         
