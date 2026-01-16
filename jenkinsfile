@@ -97,7 +97,7 @@ pipeline {
     post {
         success {
             echo '========================================='
-            echo '✅ PIPELINE COMPLETED SUCCESSFULLY!!'
+            echo '✅ PIPELINE COMPLETED SUCCESSFULLY!'
             echo '========================================='
             echo "Application URL: ${TOMCAT_URL}/${APP_NAME}/"
         }
