@@ -1,18 +1,14 @@
 pipeline {
     agent any
-
     tools {
         maven 'Maven-3.9'
     }
-
     environment {
         TOMCAT_URL   = 'http://44.192.97.178:8080'
         TOMCAT_CREDS = 'JENKINS_ID'
         APP_NAME     = 'simple-java-app'
     }
-
     stages {
-
         stage('Checkout') {
             steps {
                 echo '========== Checking out Code =========='
@@ -20,42 +16,52 @@ pipeline {
                     url: 'https://github.com/glare247/simple-java-docker.git'
             }
         }
-
-        stage('Prepare Index Page') {
+        stage('Verify Web Application Structure') {
             steps {
-                echo '========== Ensuring index.html exists =========='
+                echo '========== Verifying Web Application Structure =========='
                 script {
-                    // Create src/main/webapp directory if it doesn't exist
                     sh '''
-                    mkdir -p src/main/webapp
-                    if [ ! -f src/main/webapp/index.html ]; then
-                        echo "<!DOCTYPE html>
-<html>
-<head><title>Welcome</title></head>
-<body>
-<h1>Application Deployed Successfully!</h1>
-</body>
-</html>" > src/main/webapp/index.html
+                    # Verify required directories exist
+                    mkdir -p src/main/webapp/WEB-INF
+                    
+                    # Check if JSP file exists
+                    if [ -f src/main/webapp/index.jsp ]; then
+                        echo "✅ index.jsp found"
+                    else
+                        echo "⚠️  Warning: index.jsp not found"
                     fi
+                    
+                    # Check if Servlet exists
+                    if [ -f src/main/java/com/example/HelloServlet.java ]; then
+                        echo "✅ HelloServlet.java found"
+                    else
+                        echo "⚠️  Warning: HelloServlet.java not found"
+                    fi
+                    
+                    # Check if web.xml exists
+                    if [ -f src/main/webapp/WEB-INF/web.xml ]; then
+                        echo "✅ web.xml found"
+                    else
+                        echo "⚠️  Warning: web.xml not found"
+                    fi
+                    
+                    echo "✅ Web application structure verified"
                     '''
                 }
             }
         }
-
         stage('Build') {
             steps {
                 echo '========== Building WAR file =========='
                 sh 'mvn clean package -DskipTests'
             }
         }
-
         stage('Test') {
             steps {
                 echo '========== Running Tests =========='
                 sh 'mvn test || true'
             }
         }
-
         stage('Deploy to Tomcat') {
             steps {
                 echo '========== Deploying to Tomcat Server =========='
@@ -72,20 +78,24 @@ pipeline {
                 }
             }
         }
-
         stage('Health Check') {
             steps {
                 echo '========== Checking Application Health =========='
                 script {
                     sh '''
+                    # Wait for Tomcat to fully deploy the application
+                    echo "⏳ Waiting 10 seconds for deployment to complete..."
+                    sleep 10
+                    
+                    # Check application health
                     STATUS=$(curl -s -L -o /dev/null -w "%{http_code}" ${TOMCAT_URL}/${APP_NAME}/)
-
                     echo "HTTP status: $STATUS"
-
+                    
                     if [ "$STATUS" = "200" ] || [ "$STATUS" = "302" ]; then
-                      echo "✅ Application is running"
+                      echo "✅ Application is running successfully!"
+                      echo "🌐 Access your app at: ${TOMCAT_URL}/${APP_NAME}/"
                     else
-                      echo "❌ Application health check failed"
+                      echo "❌ Application health check failed with status: $STATUS"
                       exit 1
                     fi
                     '''
@@ -93,18 +103,21 @@ pipeline {
             }
         }
     }
-
     post {
         success {
             echo '========================================='
             echo '✅ PIPELINE COMPLETED SUCCESSFULLY!!'
             echo '========================================='
-            echo "Application URL: ${TOMCAT_URL}/${APP_NAME}/"
+            echo "🎉 Your application is now live!"
+            echo "📍 Main Page: ${TOMCAT_URL}/${APP_NAME}/"
+            echo "📍 Servlet Page: ${TOMCAT_URL}/${APP_NAME}/hello"
+            echo '========================================='
         }
         failure {
             echo '========================================='
             echo '❌ PIPELINE FAILED!'
             echo '========================================='
+            echo 'Please check the console output for errors'
         }
         always {
             cleanWs()

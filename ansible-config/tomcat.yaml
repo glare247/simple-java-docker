@@ -3,11 +3,12 @@
   hosts: tomcat
   become: yes
   vars:
-    tomcat_version: "9.0.82"
+    tomcat_version: "9.0.98"  # ✅ Updated to newer version
     java_version: "17"
     tomcat_user: "tomcat"
     tomcat_group: "tomcat"
     tomcat_home: "/opt/tomcat"
+    jenkins_ip: "YOUR_JENKINS_SERVER_IP"  # 🔒 Add your Jenkins IP here
     
   tasks:
     - name: Update apt cache
@@ -109,18 +110,20 @@
             <role rolename="manager-script"/>
             <role rolename="manager-jmx"/>
             <role rolename="manager-status"/>
-            <user username="admin" password="admin123" roles="manager-gui,manager-script,manager-jmx,manager-status"/>
-            <user username="deployer" password="deployer123" roles="manager-script"/>
+            <user username="admin" password="StrongP@ssw0rd!2025" roles="manager-gui,manager-script,manager-jmx,manager-status"/>
+            <user username="deployer" password="D3pl0y3r!Secur3#2025" roles="manager-script"/>
           </tomcat-users>
         owner: "{{ tomcat_user }}"
         group: "{{ tomcat_group }}"
 
-    - name: Allow manager access from anywhere
+    - name: Allow manager access from specific IPs only
       copy:
         dest: "{{ tomcat_home }}/webapps/manager/META-INF/context.xml"
         content: |
           <?xml version="1.0" encoding="UTF-8"?>
           <Context antiResourceLocking="false" privileged="true" >
+            <Valve className="org.apache.catalina.valves.RemoteAddrValve"
+                   allow="127\.0\.0\.1|::1|{{ jenkins_ip }}" />
             <CookieProcessor className="org.apache.tomcat.util.http.Rfc6265CookieProcessor"
                              sameSiteCookies="strict" />
           </Context>
