@@ -1,15 +1,23 @@
 ---
 - name: Install and Configure Apache Tomcat
-  hosts: tomcat
+  hosts: app_servers
   become: yes
   vars:
-    tomcat_version: "9.0.98"  # ✅ Updated to newer version
+    # Versions
+    tomcat_version: "9.0.85"
     java_version: "17"
+    # Tomcat user/group
     tomcat_user: "tomcat"
     tomcat_group: "tomcat"
     tomcat_home: "/opt/tomcat"
-    jenkins_ip: "YOUR_JENKINS_SERVER_IP"  # 🔒 Add your Jenkins IP here
-    
+    # 🔥 Dynamically get Jenkins IP from inventory
+    jenkins_ip: "{{ hostvars[groups['jenkins'][0]].ansible_host }}"
+    # 🔒 Credentials (use Ansible Vault in real environments)
+    tomcat_admin_user: "admin"
+    tomcat_admin_pass: "CHANGE_ME_ADMIN_PASSWORD"
+    tomcat_deployer_user: "deployer"
+    tomcat_deployer_pass: "CHANGE_ME_DEPLOYER_PASSWORD"
+
   tasks:
     - name: Update apt cache
       apt:
@@ -37,6 +45,7 @@
       get_url:
         url: "https://archive.apache.org/dist/tomcat/tomcat-9/v{{ tomcat_version }}/bin/apache-tomcat-{{ tomcat_version }}.tar.gz"
         dest: "/tmp/apache-tomcat-{{ tomcat_version }}.tar.gz"
+        mode: "0644"
 
     - name: Create Tomcat directory
       file:
@@ -59,7 +68,7 @@
         path: "{{ tomcat_home }}/{{ item }}"
         owner: "{{ tomcat_user }}"
         group: "{{ tomcat_group }}"
-        mode: '0755'
+        mode: "0755"
         recurse: yes
       loop:
         - bin
@@ -77,60 +86,70 @@
           [Unit]
           Description=Apache Tomcat Web Application Container
           After=network.target
-
+          
           [Service]
           Type=forking
-
+          User={{ tomcat_user }}
+          Group={{ tomcat_group }}
           Environment=JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
           Environment=CATALINA_PID={{ tomcat_home }}/temp/tomcat.pid
           Environment=CATALINA_HOME={{ tomcat_home }}
           Environment=CATALINA_BASE={{ tomcat_home }}
-
           ExecStart={{ tomcat_home }}/bin/startup.sh
           ExecStop={{ tomcat_home }}/bin/shutdown.sh
-
-          User={{ tomcat_user }}
-          Group={{ tomcat_group }}
-          RestartSec=10
           Restart=always
-
+          RestartSec=10
+          
           [Install]
           WantedBy=multi-user.target
 
+    # 🔧 FIX 1: Complete tomcat-users.xml
     - name: Configure Tomcat users
       copy:
         dest: "{{ tomcat_home }}/conf/tomcat-users.xml"
+        owner: "{{ tomcat_user }}"
+        group: "{{ tomcat_group }}"
         content: |
           <?xml version="1.0" encoding="UTF-8"?>
           <tomcat-users xmlns="http://tomcat.apache.org/xml"
                         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                         xsi:schemaLocation="http://tomcat.apache.org/xml tomcat-users.xsd"
                         version="1.0">
+            <!-- Roles -->
             <role rolename="manager-gui"/>
             <role rolename="manager-script"/>
             <role rolename="manager-jmx"/>
             <role rolename="manager-status"/>
-            <user username="admin" password="StrongP@ssw0rd!2025" roles="manager-gui,manager-script,manager-jmx,manager-status"/>
-            <user username="deployer" password="D3pl0y3r!Secur3#2025" roles="manager-script"/>
+            
+            <!-- Admin user -->
+            <user username="{{ tomcat_admin_user }}" 
+                  password="{{ tomcat_admin_pass }}" 
+                  roles="manager-gui,manager-script,manager-jmx,manager-status"/>
+            
+            <!-- Deployer user for Jenkins -->
+            <user username="{{ tomcat_deployer_user }}" 
+                  password="{{ tomcat_deployer_pass }}" 
+                  roles="manager-script"/>
           </tomcat-users>
-        owner: "{{ tomcat_user }}"
-        group: "{{ tomcat_group }}"
 
-    - name: Allow manager access from specific IPs only
+    # 🔧 FIX 2: Allow Jenkins IP to access Manager app
+    - name: Configure Manager app to allow Jenkins access
       copy:
         dest: "{{ tomcat_home }}/webapps/manager/META-INF/context.xml"
-        content: |
-          <?xml version="1.0" encoding="UTF-8"?>
-          <Context antiResourceLocking="false" privileged="true" >
-            <Valve className="org.apache.catalina.valves.RemoteAddrValve"
-                   allow="127\.0\.0\.1|::1|{{ jenkins_ip }}" />
-            <CookieProcessor className="org.apache.tomcat.util.http.Rfc6265CookieProcessor"
-                             sameSiteCookies="strict" />
-          </Context>
         owner: "{{ tomcat_user }}"
         group: "{{ tomcat_group }}"
+        content: |
+          <?xml version="1.0" encoding="UTF-8"?>
+          <Context antiResourceLocking="false" privileged="true">
+            <CookieProcessor className="org.apache.tomcat.util.http.Rfc6265CookieProcessor"
+                             sameSiteCookies="strict" />
+            <!-- Allow localhost and Jenkins IP -->
+            <Valve className="org.apache.catalina.valves.RemoteAddrValve"
+                   allow="127\.\d+\.\d+\.\d+|::1|0:0:0:0:0:0:0:1|{{ jenkins_ip }}|10\.\d+\.\d+\.\d+" />
+            <Manager sessionAttributeValueClassNameFilter="java\.lang\.(?:Boolean|Integer|Long|Number|String)|org\.apache\.catalina\.filters\.CsrfPreventionFilter\$LruCache(?:\$1)?|java\.util\.(?:Linked)?HashMap"/>
+          </Context>
 
-    - name: Reload systemd
+    - name: Reload systemd daemon
       systemd:
         daemon_reload: yes
 
@@ -140,9 +159,16 @@
         state: started
         enabled: yes
 
-    - name: Open port 8080 in UFW (if enabled)
-      ufw:
-        rule: allow
-        port: '8080'
-        proto: tcp
-      ignore_errors: yes
+    - name: Wait for Tomcat to start
+      wait_for:
+        port: 8080
+        delay: 10
+        timeout: 60
+
+    - name: Display Tomcat status
+      debug:
+        msg: 
+          - "Tomcat installed at {{ tomcat_home }}"
+          - "Access Manager at http://{{ ansible_host }}:8080/manager"
+          - "Deployer user: {{ tomcat_deployer_user }}"
+          - "Jenkins IP allowed: {{ jenkins_ip }}"

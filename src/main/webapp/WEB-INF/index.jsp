@@ -59,7 +59,7 @@
 <body>
     <div class="container">
         <div class="emoji">🚀</div>
-        <h1>Hello, Docker!</h1>
+        <h1>Hello, Docker! 🐳</h1>
         <p>Application Deployed Successfully!</p>
         
         <div class="date-info">
@@ -77,3 +77,23 @@
     </div>
 </body>
 </html>
+```
+
+---
+
+## **📝 Changes Made:**
+
+1. **Line 50:** Changed `<h1>Hello, Docker!</h1>` to `<h1>Hello, Docker! 🐳</h1>`
+2. Added proper indentation for better readability (optional but cleaner)
+
+---
+
+## **📁 Where to Save This File:**
+```
+simple-java-app/
+└── src/
+    └── main/
+        └── webapp/
+            ├── index.jsp          ← Save your JSP here
+            └── WEB-INF/
+                └── web.xml

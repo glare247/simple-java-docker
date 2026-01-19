@@ -2,7 +2,19 @@
 - name: Install and Configure Jenkins
   hosts: jenkins
   become: yes
-  
+  vars:
+    jenkins_port: 8080
+    jenkins_home: /var/lib/jenkins
+    jenkins_admin_user: "admin"
+    jenkins_url: "http://localhost:{{ jenkins_port }}"
+    jenkins_plugins:
+      - "workflow-aggregator"
+      - "git"
+      - "maven-plugin"
+      - "deploy"  # ← Changed from "deploy-to-container"
+      - "credentials"
+      - "ssh-credentials"
+
   tasks:
     - name: Update apt cache
       apt:
@@ -11,6 +23,16 @@
     - name: Install Java 17
       apt:
         name: openjdk-17-jdk
+        state: present
+
+    - name: Install required packages
+      apt:
+        name:
+          - git
+          - maven
+          - curl
+          - python3-lxml  # ← Required for jenkins_plugin module
+          - python3-pip
         state: present
 
     - name: Add Jenkins GPG key
@@ -29,16 +51,6 @@
         state: present
         update_cache: yes
 
-    - name: Install Git
-      apt:
-        name: git
-        state: present
-
-    - name: Install Maven
-      apt:
-        name: maven
-        state: present
-
     - name: Start and enable Jenkins
       systemd:
         name: jenkins
@@ -47,22 +59,106 @@
 
     - name: Wait for Jenkins to start
       wait_for:
-        port: 8080
-        delay: 10
+        port: "{{ jenkins_port }}"
+        delay: 15
         timeout: 300
 
+    - name: Check if initial password file exists
+      stat:
+        path: "{{ jenkins_home }}/secrets/initialAdminPassword"
+      register: jenkins_password_file
+
     - name: Get Jenkins initial admin password
-      command: cat /var/lib/jenkins/secrets/initialAdminPassword
-      register: jenkins_password
-      changed_when: false
+      slurp:
+        src: "{{ jenkins_home }}/secrets/initialAdminPassword"
+      register: jenkins_initial_password
+      when: jenkins_password_file.stat.exists
 
     - name: Display Jenkins initial password
       debug:
-        msg: "Jenkins Initial Admin Password: {{ jenkins_password.stdout }}"
+        msg: "Jenkins Initial Password: {{ jenkins_initial_password.content | b64decode | trim }}"
+      when: jenkins_password_file.stat.exists
 
-    - name: Open port 8080 in UFW (if enabled)
+    # Save password to remote server instead of local machine
+    - name: Save Jenkins password to remote server
+      copy:
+        content: "{{ jenkins_initial_password.content | b64decode }}"
+        dest: "/tmp/jenkins_initial_password.txt"
+        mode: '0600'
+      when: jenkins_password_file.stat.exists
+
+    - name: Wait for Jenkins to be fully ready
+      uri:
+        url: "{{ jenkins_url }}"
+        status_code: 200,403
+        timeout: 5
+      register: jenkins_ready
+      until: jenkins_ready.status in [200, 403]
+      retries: 12
+      delay: 10
+
+    # Install Jenkins CLI for plugin management
+    - name: Download Jenkins CLI
+      get_url:
+        url: "{{ jenkins_url }}/jnlpJars/jenkins-cli.jar"
+        dest: /tmp/jenkins-cli.jar
+        mode: '0755'
+      retries: 3
+      delay: 10
+
+    # Alternative: Install plugins via jenkins-plugin-cli
+    - name: Install Jenkins plugins using CLI
+      shell: |
+        java -jar /tmp/jenkins-cli.jar -s {{ jenkins_url }} \
+        -auth admin:$(cat {{ jenkins_home }}/secrets/initialAdminPassword) \
+        install-plugin {{ item }}
+      loop: "{{ jenkins_plugins }}"
+      ignore_errors: yes
+      when: jenkins_password_file.stat.exists
+
+    # Better approach: Use jenkins-plugin-cli (built into Jenkins)
+    - name: Install plugins using jenkins-plugin-cli
+      shell: |
+        jenkins-plugin-cli --jenkins-version $(jenkins --version) \
+        --plugin-download-directory {{ jenkins_home }}/plugins \
+        --plugins {{ jenkins_plugins | join(' ') }}
+      become_user: jenkins
+      ignore_errors: yes
+
+    - name: Open Jenkins port in UFW
       ufw:
         rule: allow
-        port: '8080'
+        port: "{{ jenkins_port }}"
         proto: tcp
       ignore_errors: yes
+
+    - name: Configure Jenkins for Tomcat deployment
+      lineinfile:
+        path: "{{ jenkins_home }}/config.xml"
+        regexp: '<useSecurity>true</useSecurity>'
+        line: '<useSecurity>true</useSecurity>'
+        create: yes
+      notify: Restart Jenkins
+
+    - name: Display Jenkins access information
+      debug:
+        msg:
+          - "=========================================="
+          - "Jenkins Installation Complete!"
+          - "=========================================="
+          - "URL: http://{{ ansible_host }}:{{ jenkins_port }}"
+          - "Initial Password saved to: /tmp/jenkins_initial_password.txt"
+          - "Plugins to install: {{ jenkins_plugins | join(', ') }}"
+          - "=========================================="
+
+  handlers:
+    - name: Restart Jenkins
+      systemd:
+        name: jenkins
+        state: restarted
+      
+    - name: Wait for Jenkins after restart
+      wait_for:
+        port: "{{ jenkins_port }}"
+        delay: 10
+        timeout: 120
