@@ -7,7 +7,7 @@ pipeline {
     
     environment {
         TOMCAT_URL   = 'http://10.0.1.219:8080'
-        TOMCAT_CREDS = 'tomcat-credentials'
+        TOMCAT_CREDS = 'JENKINS_ID'
         APP_NAME     = 'simple-java-app'
     }
     
