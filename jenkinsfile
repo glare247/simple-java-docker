@@ -127,7 +127,7 @@ pipeline {
         }
         failure {
             echo '========================================='
-            echo '❌ PIPELINE FAILED!'
+            echo '❌ PIPELINE FAILED!!'
             echo '========================================='
             echo 'Please check the console output for errors'
         }
