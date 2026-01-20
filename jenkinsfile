@@ -6,8 +6,8 @@ pipeline {
     }
     
     environment {
-        TOMCAT_URL   = 'http://10.0.1.219:8080'  // ✅ Changed to PRIVATE IP
-        TOMCAT_CREDS = 'tomcat-credentials'      // ✅ Changed to correct ID
+        TOMCAT_URL   = 'http://10.0.1.219:8080'
+        TOMCAT_CREDS = 'tomcat-credentials'
         APP_NAME     = 'simple-java-app'
     }
     
@@ -20,41 +20,6 @@ pipeline {
             }
         }
         
-        stage('Verify Web Application Structure') {
-            steps {
-                echo '========== Verifying Web Application Structure =========='
-                script {
-                    sh '''
-                    # Verify required directories exist
-                    mkdir -p src/main/webapp/WEB-INF
-                    
-                    # Check if JSP file exists
-                    if [ -f src/main/webapp/index.jsp ]; then
-                        echo "✅ index.jsp found"
-                    else
-                        echo "⚠️  Warning: index.jsp not found"
-                    fi
-                    
-                    # Check if Servlet exists
-                    if [ -f src/main/java/com/example/HelloServlet.java ]; then
-                        echo "✅ HelloServlet.java found"
-                    else
-                        echo "⚠️  Warning: HelloServlet.java not found"
-                    fi
-                    
-                    # Check if web.xml exists
-                    if [ -f src/main/webapp/WEB-INF/web.xml ]; then
-                        echo "✅ web.xml found"
-                    else
-                        echo "⚠️  Warning: web.xml not found"
-                    fi
-                    
-                    echo "✅ Web application structure verified"
-                    '''
-                }
-            }
-        }
-        
         stage('Build') {
             steps {
                 echo '========== Building WAR file =========='
@@ -62,52 +27,38 @@ pipeline {
             }
         }
         
-        stage('Test') {
-            steps {
-                echo '========== Running Tests =========='
-                sh 'mvn test || true'
-            }
-        }
-        
         stage('Deploy to Tomcat') {
             steps {
-                echo '========== Deploying to Tomcat Server =========='
-                script {
-                    deploy adapters: [
-                        tomcat9(
-                            credentialsId: env.TOMCAT_CREDS,
-                            url: env.TOMCAT_URL,
-                            path: ''
-                        )
-                    ],
-                    war: "target/${APP_NAME}.war",
-                    contextPath: "/${APP_NAME}"
-                }
+                echo '========== Deploying to Tomcat =========='
+                deploy adapters: [
+                    tomcat9(
+                        credentialsId: env.TOMCAT_CREDS,
+                        url: env.TOMCAT_URL
+                    )
+                ],
+                war: "target/${APP_NAME}.war",
+                contextPath: "/${APP_NAME}"
             }
         }
         
         stage('Health Check') {
             steps {
-                echo '========== Checking Application Health =========='
-                script {
-                    sh '''
-                    # Wait for Tomcat to fully deploy the application
-                    echo "⏳ Waiting 15 seconds for deployment to complete..."
-                    sleep 15
-                    
-                    # Check application health
-                    STATUS=$(curl -s -L -o /dev/null -w "%{http_code}" ${TOMCAT_URL}/${APP_NAME}/)
-                    echo "HTTP status: $STATUS"
-                    
-                    if [ "$STATUS" = "200" ] || [ "$STATUS" = "302" ]; then
-                        echo "✅ Application is running successfully!"
-                        echo "🌐 Access your app at: ${TOMCAT_URL}/${APP_NAME}/"
-                    else
-                        echo "⚠️ Application health check returned status: $STATUS"
-                        echo "This might be normal if the app takes longer to start"
-                    fi
-                    '''
-                }
+                echo '========== Application Health Check =========='
+                sh '''
+                echo "⏳ Waiting for deployment..."
+                sleep 25
+
+                STATUS=$(curl -s -L -o /dev/null -w "%{http_code}" ${TOMCAT_URL}/${APP_NAME}/)
+
+                echo "HTTP status: $STATUS"
+
+                if [ "$STATUS" != "200" ] && [ "$STATUS" != "302" ]; then
+                    echo "❌ Application failed health check"
+                    exit 1
+                fi
+
+                echo "✅ Application is running successfully"
+                '''
             }
         }
     }
@@ -117,19 +68,13 @@ pipeline {
             echo '========================================='
             echo '✅ PIPELINE COMPLETED SUCCESSFULLY!'
             echo '========================================='
-            echo '🎉 Your application is now live!'
-            echo "📍 Main Page: ${TOMCAT_URL}/${APP_NAME}/"
-            echo "📍 Servlet Page: ${TOMCAT_URL}/${APP_NAME}/hello"
-            echo ''
-            echo '🌐 Public Access (from browser):'
-            echo '   http://34.231.169.236:8080/simple-java-app/'
-            echo '========================================='
+            echo "🌐 App URL (internal): ${TOMCAT_URL}/${APP_NAME}/"
+            echo "🌐 App URL (public):  http://34.231.169.236:8080/${APP_NAME}/"
         }
         failure {
             echo '========================================='
-            echo '❌ PIPELINE FAILED!!'
+            echo '❌ PIPELINE FAILED!'
             echo '========================================='
-            echo 'Please check the console output for errors'
         }
         always {
             cleanWs()
